@@ -266,15 +266,18 @@ input[type=range]{ width:100%; }
 <div class="screen" id="mp">
   <h2 class="h2">Multiplayer</h2>
   <div id="mpJoin" style="display:flex;flex-direction:column;gap:12px;align-items:center;width:100%">
-    <p class="sub">Race friends on the same level and see each other live. Pick a room code and have your friends enter the same one.</p>
+    <p class="sub">Race friends on the same level and see each other live. Join a public room, or pick a private room code and have your friends enter the same one.</p>
     <div class="card"><h3>Room code</h3><input type="text" id="mpCode" maxlength="10" placeholder="e.g. flips" autocomplete="off" autocapitalize="none"></div>
     <div class="row"><div class="btn cy" id="mpCreate">Random</div><div class="btn" id="mpGo">Join</div></div>
+    <div class="card"><h3>Public rooms</h3><div id="pubList" style="max-height:170px;overflow-y:auto;font-size:14px;text-align:left"></div><p class="note" id="pubNote" style="margin-top:6px">Looking for rooms...</p></div>
+    <div class="row"><div class="btn or" id="pubCreate">Create public room</div><div class="btn gh" id="pubRefresh">Refresh</div></div>
     <p class="note" id="mpStatus">To play together: You and your friend(s) have to enter the same code.</p>
   </div>
   <div id="mpLobby" style="display:none;flex-direction:column;gap:12px;align-items:center;width:100%">
     <div class="card"><h3>Room code</h3><div class="code" id="mpShow"></div></div>
     <div class="card"><h3>Players</h3><div id="mpPlayers"></div></div>
-    <div class="card"><h3>Level <span id="mpHostTag" style="color:var(--cyan)"></span></h3>
+    <div class="card"><h3>Mode <span id="mpHostTag" style="color:var(--cyan)"></span></h3>
+      <div class="row" style="max-width:none;margin-bottom:10px"><div class="btn sm" id="mdRace">Race</div><div class="btn sm" id="mdFree">Free Play</div><div class="btn sm" id="mdPick">Pick map</div></div>
       <div class="row" style="max-width:none;align-items:center">
         <div class="btn gh sm" id="mpPrev" style="width:56px;flex:0 0 56px">&#9664;</div>
         <div id="mpLvName" style="flex:1;text-align:center;font-weight:900;font-size:17px"></div>
@@ -282,7 +285,7 @@ input[type=range]{ width:100%; }
       </div></div>
     <div class="card"><h3>Chat</h3><div id="chatLog" style="max-height:120px;overflow-y:auto;font-size:13px;text-align:left"></div><input type="text" id="chatIn" maxlength="120" placeholder="Say something..." autocomplete="off"></div>
     <div class="btn gh sm" id="vcBtn">Voice chat: off</div>
-    <div class="btn or" id="fpGo">Free play (guns, open world)</div>
+    <div class="btn or hidden" id="fpGo">Free play (guns, open world)</div>
     <div class="btn" id="mpReady">Ready</div>
     <div class="btn gh sm" id="mpLeave">Leave room</div>
   </div>
@@ -1006,9 +1009,12 @@ function finish(){
   save.prog[d.id]=pr; persist(); SFX.win(); buzz(80);
   $('dTitle').innerHTML='LEVEL<br>CLEAR';
   $('dStats').textContent=d.name+'  |  Time '+fmt(elapsed)+(newBest?' (new best)':'')+'  |  Score '+score+'  |  Stars '+starsRun+'/'+STARS.length+'  |  Flips '+flipsTotal+'  |  Bails '+bails;
-  $('dNext').classList.toggle('hidden',mpActive()||lvIdx>=LEVELS.length-3);
-  $('dLobby').classList.toggle('hidden',!mpActive());
-  $('dRetry').classList.toggle('hidden',mpActive());
+  var inR=mpActive();
+  $('dNext').classList.toggle('hidden',(inR&&mpMode===2)?false:lvIdx>=LEVELS.length-3);
+  $('dNext').textContent='Next level'; $('dLobby').textContent='Back';
+  $('dLobby').classList.toggle('hidden',!inR);
+  $('dRetry').classList.toggle('hidden',inR);
+  $('dMenu').classList.remove('hidden');
   if(mpActive()){ mpPres({fin:Math.round(elapsed*10)/10}); }
   $('dRes').classList.toggle('hidden',!mpActive());
   renderResults();
@@ -1208,9 +1214,9 @@ tap('pRestart',function(){ var i=lvIdx; flow='play'; loadLevel(i); hideScreens()
 tap('pSet',function(){ buildSettings(); settingsFrom='pause'; showScreen('settings'); });
 tap('pFs',toggleFS);
 tap('pMenu',toMenu);
-tap('dNext',function(){ startLevel(Math.min(lvIdx+1,LEVELS.length-1)); });
+tap('dNext',function(){ if(mpActive()){ mpNextRun(); return; } startLevel(Math.min(lvIdx+1,LEVELS.length-1)); });
 tap('dRetry',function(){ startLevel(lvIdx); });
-tap('dLobby',function(){ flow='menu'; playUI(false); mpPres({pl:null,fin:null,rd:false}); showScreen('mp'); updateMpUI(); });
+tap('dLobby',function(){ flow='menu'; playUI(false); mpReady=false; mpCountdownStarted=false; mpPres({pl:null,fin:null,rd:false,ps:0}); showScreen('mp'); updateMpUI(); });
 tap('dMenu',toMenu);
 $('pausebtn').addEventListener('pointerdown',function(e){ e.preventDefault(); doPause(); });
 (function(){ var e=document.querySelectorAll('#emotes .emo'); for(var i=0;i<e.length;i++){ (function(el){ el.addEventListener('pointerdown',function(ev){ ev.preventDefault(); sendEmote(el.getAttribute('data-e')); }); })(e[i]); } })();
@@ -1270,7 +1276,7 @@ $('sZoom').addEventListener('input',function(e){ save.set.zoom=parseFloat(e.targ
 $('sBs').addEventListener('input',function(e){ save.set.bsize=parseFloat(e.target.value); applySettings(); persist(); });
 
 // ================= multiplayer (room capability) =================
-var roomApi=null, room=null, roomCode='', myJoin=0, peersNow=[], mpReady=false, mpLevel=0, mpT=0, mpCountdownStarted=false;
+var roomApi=null, room=null, roomCode='', myJoin=0, peersNow=[], mpReady=false, mpLevel=0, mpT=0, mpCountdownStarted=false, mpMode=0, mpFq=0;
 var emoteSeen={}, emoteShow={}, ghostPos={}, mpSig='';
 function mapTxt(pr){ var mi=Number(pr.lv2)%1000; if(!pr.pl||!(mi>=0)||!LEVELS[mi])return ''; return ' | '+LEVELS[mi].name+(LEVELS[mi].guns?' #'+(Number(pr.fs)%9000+1000):''); }
 function mpActive(){ return !!room; }
@@ -1319,7 +1325,7 @@ function mpJoinRoom(code){
     if(!api){ mpStatus('Paste your Cloudflare server address in the Server box (see the setup guide), or open this page inside Claude.'); return null; }
     roomApi=api;
     return api.join('fl-'+code).then(function(r){
-      room=r; roomCode=code; myJoin=Date.now(); mpReady=false; mpLevel=0; mpCountdownStarted=false; emoteSeen={}; emoteShow={}; ghostPos={};
+      room=r; roomCode=code; myJoin=Date.now(); mpReady=false; mpLevel=0; mpMode=0; mpFq=0; mpCountdownStarted=false; emoteSeen={}; emoteShow={}; ghostPos={};
       var base=custPres(); base.j=myJoin; base.lv=0; base.rd=false;
       mpPres(base);
       r.onPeers(onPeers,function(){ });
@@ -1348,8 +1354,8 @@ function onPeers(ch){
   peersNow=ch.peers.slice(); vcSync();
   var host=hostPeer();
   if(host&&!host.isMe){
-    var lv=clamp(Number(host.presence.lv)|0,0,LEVELS.length-1);
-    if(lv!==mpLevel){ mpLevel=lv; }
+    mpMode=clamp(Number(host.presence.md)|0,0,2); mpFq=Number(host.presence.fq)||0;
+    mpLevel=clamp(Number(host.presence.lv)|0,0,LEVELS.length-2);
   }
   // emotes
   peersNow.forEach(function(p){
@@ -1361,18 +1367,16 @@ function onPeers(ch){
   maybeStartRace();
 }
 function sendEmote(e){ emoteShow.me={e:String(e).slice(0,4),t:0}; mpPres({e:e,et:Date.now()}); }
+function mpStartLevel(){ return mpMode===1?LEVELS.length-1:clamp(mpLevel,0,mpMode===0?LEVELS.length-3:LEVELS.length-2); }
 function maybeStartRace(){
-  if(!save.tos)return;
-  if(!room||mpCountdownStarted)return;
+  if(!save.tos||!room||mpCountdownStarted||!mpReady)return;
   if(flow==='play'||flow==='count'||flow==='pause')return;
-  var me=null; peersNow.forEach(function(p){ if(p.isMe)me=p; });
-  if(!me||!mpReady)return;
-  var wait=false;
-  peersNow.forEach(function(p){ if(p.isMe)return; if(!p.presence.rd&&!p.presence.pl)wait=true; });
-  if(wait)return;
-  mpCountdownStarted=true; mpReady=false; mpPres({rd:false});
+  var all=true; peersNow.forEach(function(p){ if(!p.isMe&&!p.presence.rd)all=false; });
+  if(!all)return;
+  var lvl=mpStartLevel();
+  if(LEVELS[lvl].guns){ if(!(mpFq>0))return; fpSeed=(mpFq>>>0)||1; }
+  mpCountdownStarted=true; mpReady=false;   // presence rd stays true until GO, so the others still see it
   var anyOthers=peersNow.length>1;
-  var lvl=mpLevel;
   loadLevel(lvl); flow='count'; countT=3.99; countLast=-1; hideScreens(); playUI(true); clearInputs();
   if(!anyOthers)toast('Waiting alone? Share the room code.');
 }
@@ -1381,11 +1385,13 @@ function updateMpUI(){
   $('mpJoin').style.display=inRoom?'none':'flex';
   $('mpLobby').style.display=inRoom?'flex':'none';
   if(!inRoom)return;
-  $('mpShow').textContent=roomCode.toUpperCase();
+  $('mpShow').textContent=(roomCode.indexOf(PUB)===0)?'PUBLIC \u00b7 '+roomCode.slice(PUB.length).toUpperCase():roomCode.toUpperCase();
   var host=hostPeer(), iAmHost=!host||host.isMe;
   $('mpHostTag').textContent=iAmHost?'(you pick)':'(host picks)';
-  $('mpLvName').textContent=LEVELS[mpLevel].name;
-  $('mpPrev').style.opacity=$('mpNext').style.opacity=iAmHost?1:.35;
+  var sl=mpStartLevel();
+  $('mpLvName').textContent=mpMode===0?('Race '+(sl+1)+'/'+(LEVELS.length-2)+': '+LEVELS[sl].name):(mpMode===1?'Free Play (guns)'+(mpFq>0?' #'+(mpFq%9000+1000):''):LEVELS[sl].name);
+  [['mdRace',0],['mdFree',1],['mdPick',2]].forEach(function(a){ var b=$(a[0]); b.classList.toggle('gh',mpMode!==a[1]); b.style.opacity=iAmHost?1:.6; });
+  var pv=(mpMode===2&&iAmHost)?'visible':'hidden'; $('mpPrev').style.visibility=pv; $('mpNext').style.visibility=pv;
   var box=$('mpPlayers');
   var sig=JSON.stringify(peersNow.map(function(p){ var r=p.presence; return [p.peer,p.isMe,r.n,r.s,r.pl,r.fin,r.rd,r.d,r.sm,r.kls,r.dth,r.lv2,r.fs,r.ps]; }))+'|'+(host&&host.peer)+'|'+mpLevel;
   if(sig!==mpSig){ mpSig=sig; box.innerHTML='';
@@ -1409,18 +1415,55 @@ function joinPeer(pid){
   var seed=LEVELS[mi].guns?Number(pr.fs):undefined;
   if(LEVELS[mi].guns&&!(seed>0)){ toast('Waiting for their map info, try again.'); return; }
   if(!save.tos){ showScreen('tosS'); return; }
-  mpLevel=mi; mpReady=false; mpCountdownStarted=false;
+  mpReady=false; mpCountdownStarted=false;
   startLevel(mi,seed); toast('Joined '+String(pr.n||'Player').slice(0,12)+"'s map");
 }
 $('mpPlayers').addEventListener('click',function(e){ var b=e.target.closest&&e.target.closest('[data-join]'); if(b){ audio(); SFX.click(); joinPeer(b.dataset.join); } });
+var PUB='zpub', pubBusy=false, pubSig='', pubWas=false, pubT=0;
+function pubRefresh(){
+  if(pubBusy)return; pubBusy=true;
+  fetch(DEFAULT_SERVER.trim().replace(/^ws/,'http').replace(/\/+$/,'')+'/rooms?t='+Date.now()).then(function(r){ return r.json(); }).then(function(list){
+    pubBusy=false; if(!Array.isArray(list))list=[];
+    var sig=JSON.stringify(list); if(sig===pubSig)return; pubSig=sig;
+    var box=$('pubList'); box.innerHTML='';
+    $('pubNote').textContent=list.length?(list.length+' public room'+(list.length>1?'s':'')+' open'):'No public rooms right now. Create one!';
+    list.slice(0,20).forEach(function(r){
+      var n=Number(r.n)||0, row=document.createElement('div'); row.className='pl';
+      var nm=document.createElement('span'); nm.textContent=String(r.host||'Player').slice(0,12)+"'s room";
+      var st=document.createElement('span'); st.className='r'; st.textContent=n+'/12 | '+['Race','Free Play','Pick map'][clamp(Number(r.md)|0,0,2)];
+      row.appendChild(nm); row.appendChild(st);
+      if(n<12){ var jb=document.createElement('button'); jb.textContent='Join'; jb.dataset.code=String(r.code||'').slice(0,12); jb.style.cssText='flex:none;border:0;border-radius:8px;padding:6px 12px;margin-left:8px;font:800 13px sans-serif;background:#ffd400;color:#000;cursor:pointer'; row.appendChild(jb); }
+      box.appendChild(row);
+    });
+  }).catch(function(){ pubBusy=false; $('pubNote').textContent='Could not load public rooms.'; });
+}
+$('pubList').addEventListener('click',function(e){ var b=e.target.closest&&e.target.closest('[data-code]'); if(b){ audio(); SFX.click(); mpJoinRoom(b.dataset.code); } });
+tap('pubCreate',function(){ $('mpCode').value=PUB+genCode(); mpJoinRoom($('mpCode').value); });
+tap('pubRefresh',function(){ pubSig=''; pubRefresh(); });
+setInterval(function(){ var sh=$('mp').classList.contains('show')&&!mpActive(); if(sh&&(!pubWas||++pubT>=3)){ pubT=0; pubRefresh(); } pubWas=sh; },1000);
 tap('mpCreate',function(){ $('mpCode').value=genCode(); });
 tap('mpGo',function(){ mpJoinRoom($('mpCode').value); });
 tap('mpLeave',mpLeaveRoom);
 tap('mpBack',function(){ showScreen('menu'); });
-tap('mpReady',function(){ mpReady=!mpReady; mpPres({rd:mpReady,lv:mpLevel}); updateMpUI(); maybeStartRace(); });
+tap('mpReady',function(){ mpReady=!mpReady; mpPres({rd:mpReady}); updateMpUI(); maybeStartRace(); });
 function mpChangeLevel(dir){
-  var host=hostPeer(); if(host&&!host.isMe)return;
-  mpLevel=(mpLevel+dir+LEVELS.length)%LEVELS.length; mpPres({lv:mpLevel}); updateMpUI();
+  var host=hostPeer(); if((host&&!host.isMe)||mpMode!==2)return;
+  var n=LEVELS.length-1; mpLevel=(mpLevel+dir+n)%n; mpPres({lv:mpLevel}); updateMpUI();
+}
+function mpSetMode(m){
+  var host=hostPeer(); if(host&&!host.isMe){ toast('The host picks the mode.'); return; }
+  mpMode=m; if(m===0)mpLevel=0; if(m===2)mpLevel=Math.min(mpLevel,LEVELS.length-2);
+  var patch={md:m,lv:mpLevel}; if(m===1){ mpFq=fpFresh(); patch.fq=mpFq; }
+  mpPres(patch); updateMpUI();
+}
+tap('mdRace',function(){ mpSetMode(0); }); tap('mdFree',function(){ mpSetMode(1); }); tap('mdPick',function(){ mpSetMode(2); });
+// "Next level" in a room: straight into the next map with a countdown (no lobby, no ready step)
+function mpNextRun(){
+  var host=hostPeer(), iAmHost=!host||host.isMe;
+  var nxt=(mpMode===2)?(lvIdx+1)%(LEVELS.length-1):Math.min(lvIdx+1,LEVELS.length-3);
+  mpLevel=nxt; if(iAmHost)mpPres({lv:nxt});
+  mpCountdownStarted=true; mpReady=false; mpPres({pl:null,fin:null,rd:false,ps:0});
+  loadLevel(nxt); flow='count'; countT=3.99; countLast=-1; hideScreens(); playUI(true); clearInputs();
 }
 tap('mpPrev',function(){ mpChangeLevel(-1); });
 tap('mpNext',function(){ mpChangeLevel(1); });

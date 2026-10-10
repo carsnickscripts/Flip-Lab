@@ -5,9 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0c1433">
 <title>Flip Lab</title>
 <style>
 :root{
+  color-scheme:dark; forced-color-adjust:none;
   --bg:#0c1433; --fg:#ffffff; --muted:#a9b6e6; --accent:#ff6a3d; --cyan:#2fd1ff; --gold:#ffd400; --card:rgba(20,30,66,.92);
   box-sizing:border-box;
   padding-top:env(safe-area-inset-top,0px);
@@ -286,7 +289,9 @@ input[type=range]{ width:100%; }
     <div class="card"><h3>Chat</h3><div id="chatLog" style="max-height:120px;overflow-y:auto;font-size:13px;text-align:left"></div><input type="text" id="chatIn" maxlength="120" placeholder="Say something..." autocomplete="off"></div>
     <div class="btn gh sm" id="vcBtn">Voice chat: off</div>
     <div class="btn or hidden" id="fpGo">Free play (guns, open world)</div>
+    <div class="btn" id="mpStart">Start game</div>
     <div class="btn" id="mpReady">Ready</div>
+    <p class="note" id="mpHint" style="margin:0"></p>
     <div class="btn gh sm" id="mpLeave">Leave room</div>
   </div>
   <div class="btn gh sm" id="mpBack">Back</div>
@@ -397,6 +402,7 @@ if(D.readyState==='complete')start(); else W.addEventListener('load',start);
 (function(){
 'use strict';
 try{ document.currentScript.textContent=''; }catch(e){}
+function A(x){ x=+x; return x>0?(x<1?Math.round(x*1000)/1000:1):0; }   // alpha that never prints as 1e-7 / NaN
 var TWO_PI=Math.PI*2;
 function $(id){ return document.getElementById(id); }
 function clamp(v,a,b){ return v<a?a:v>b?b:v; }
@@ -1329,7 +1335,13 @@ function mpJoinRoom(code){
       var base=custPres(); base.j=myJoin; base.lv=0; base.rd=false;
       mpPres(base);
       r.onPeers(onPeers,function(){ });
-      try{ r.on('rtc',vcHandle); r.on('die',netDie); r.on('hit',netHit); r.on('shot',function(m){ var d=m&&m.data; if(!d||m.isMe||flow!=='play'||!Array.isArray(d.ps))return; var w=clamp(Number(d.w)|0,0,GUNS.length-1); d.ps.slice(0,12).forEach(function(q){ if(!Array.isArray(q))return; bullets.push({x:Number(q[0])||0,y:Number(q[1])||0,vx:clamp(Number(q[2])||0,-3000,3000),vy:clamp(Number(q[3])||0,-3000,3000),t:clamp(Number(d.t)||1,0,2.5),own:false,w:w,r:!!GUNS[w].rocket,by:m.peer||m.from||null}); }); }); r.on('kill',function(m){ var d=m&&m.data; if(d&&d.by===myPid()){ kills++; mpPres({kls:kills}); kdText(); toast('Nice shot! +1 kill'); SFX.star(); } }); r.on('fp',function(m){ if(m&&!m.isMe&&flow!=='play'){ startLevel(LEVELS.length-1,m.data&&m.data.seed); toast('Free play started'); } }); }catch(e){}
+      try{ r.on('rtc',vcHandle); r.on('die',netDie); r.on('hit',netHit); r.on('shot',function(m){ var d=m&&m.data; if(!d||m.isMe||flow!=='play'||!Array.isArray(d.ps))return; var w=clamp(Number(d.w)|0,0,GUNS.length-1); d.ps.slice(0,12).forEach(function(q){ if(!Array.isArray(q))return; bullets.push({x:Number(q[0])||0,y:Number(q[1])||0,vx:clamp(Number(q[2])||0,-3000,3000),vy:clamp(Number(q[3])||0,-3000,3000),t:clamp(Number(d.t)||1,0,2.5),own:false,w:w,r:!!GUNS[w].rocket,by:m.peer||m.from||null}); }); }); r.on('kill',function(m){ var d=m&&m.data; if(d&&d.by===myPid()){ kills++; mpPres({kls:kills}); kdText(); toast('Nice shot! +1 kill'); SFX.star(); } }); r.on('fp',function(m){ if(m&&!m.isMe&&flow!=='play'){ startLevel(LEVELS.length-1,m.data&&m.data.seed); toast('Free play started'); } });
+      r.on('start',function(m){   // host pressed Start: only players who are Ready (and in the lobby) go
+        var d=m&&m.data, host=hostPeer(); if(!d||m.isMe||!host||host.isMe||m.from!==host.peer)return;
+        if(!mpReady||!$('mp').classList.contains('show'))return;
+        mpMode=clamp(Number(d.md)|0,0,2); mpLevel=clamp(Number(d.lv)|0,0,LEVELS.length-2); mpFq=Number(d.fq)||0;
+        mpBeginRun();
+      }); }catch(e){}
       try{ r.on('chat',function(m){ var d=m&&m.data||{}; addChat(String(d.n||'Player').slice(0,12),String(d.m||'').slice(0,120)); }); }catch(e){}
       updateMpUI();
     });
@@ -1368,18 +1380,17 @@ function onPeers(ch){
 }
 function sendEmote(e){ emoteShow.me={e:String(e).slice(0,4),t:0}; mpPres({e:e,et:Date.now()}); }
 function mpStartLevel(){ return mpMode===1?LEVELS.length-1:clamp(mpLevel,0,mpMode===0?LEVELS.length-3:LEVELS.length-2); }
-function maybeStartRace(){
-  if(!save.tos||!room||mpCountdownStarted||!mpReady)return;
+function mpBeginRun(){   // start the current mode's map for me (3-2-1 countdown)
+  if(!save.tos||!room||mpCountdownStarted)return;
   if(flow==='play'||flow==='count'||flow==='pause')return;
-  var all=true; peersNow.forEach(function(p){ if(!p.isMe&&!p.presence.rd)all=false; });
-  if(!all)return;
   var lvl=mpStartLevel();
   if(LEVELS[lvl].guns){ if(!(mpFq>0))return; fpSeed=(mpFq>>>0)||1; }
-  mpCountdownStarted=true; mpReady=false;   // presence rd stays true until GO, so the others still see it
+  mpCountdownStarted=true; mpReady=false;   // presence rd stays true until GO
   var anyOthers=peersNow.length>1;
   loadLevel(lvl); flow='count'; countT=3.99; countLast=-1; hideScreens(); playUI(true); clearInputs();
   if(!anyOthers)toast('Waiting alone? Share the room code.');
 }
+function maybeStartRace(){}   // starting is now done by the host's Start game button
 function updateMpUI(){
   var inRoom=mpActive();
   $('mpJoin').style.display=inRoom?'none':'flex';
@@ -1407,6 +1418,11 @@ function updateMpUI(){
   }); }
   $('mpReady').textContent=mpReady?'Not ready':'Ready';
   $('mpReady').classList.toggle('gh',mpReady);
+  var oth=peersNow.filter(function(p){ return !p.isMe; }), rdy=oth.filter(function(p){ return p.presence.rd; }).length, allRdy=oth.length>0&&rdy===oth.length;
+  $('mpStart').style.display=iAmHost?'':'none'; $('mpReady').style.display=iAmHost?'none':'';
+  $('mpStart').textContent=!oth.length?'Start game':(allRdy?'Start game (everyone ready!)':'Start game ('+rdy+'/'+oth.length+' ready)');
+  $('mpStart').classList.toggle('gh',oth.length>0&&!allRdy);
+  $('mpHint').textContent=iAmHost?'Press Start when your friends are ready. Anyone not ready stays in the lobby.':'Press Ready, then wait for the host to press Start.';
 }
 function joinPeer(pid){
   var p=null; peersNow.forEach(function(q){ if(q.peer===pid)p=q; }); if(!p)return;
@@ -1445,6 +1461,13 @@ tap('mpCreate',function(){ $('mpCode').value=genCode(); });
 tap('mpGo',function(){ mpJoinRoom($('mpCode').value); });
 tap('mpLeave',mpLeaveRoom);
 tap('mpBack',function(){ showScreen('menu'); });
+tap('mpStart',function(){
+  var host=hostPeer(); if(host&&!host.isMe){ toast('The host starts the game.'); return; }
+  if(!save.tos){ showScreen('tosS'); return; }
+  if(mpMode===1&&!(mpFq>0)){ mpFq=fpFresh(); mpPres({fq:mpFq}); }
+  if(room){ try{ room.emit('start',{md:mpMode,lv:mpLevel,fq:mpFq}).catch(noop); }catch(e){} }
+  mpBeginRun();
+});
 tap('mpReady',function(){ mpReady=!mpReady; mpPres({rd:mpReady}); updateMpUI(); maybeStartRace(); });
 function mpChangeLevel(dir){
   var host=hostPeer(); if((host&&!host.isMe)||mpMode!==2)return;
@@ -1856,7 +1879,7 @@ function drawFX(){
   ctx.save(); ctx.setTransform(DPR,0,0,DPR,0,0);
   var g=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*.4,W/2,H/2,Math.max(W,H)*.8); g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,25,.4)');
   ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-  if(hitT>0){ ctx.fillStyle='rgba(255,40,40,'+Math.min(.45,hitT)+')'; ctx.fillRect(0,0,W,H); }
+  if(hitT>0){ ctx.fillStyle='rgba(255,40,40,'+A(Math.min(.45,hitT))+')'; ctx.fillRect(0,0,W,H); }
   ctx.fillStyle='rgba(255,255,255,.3)';
   for(var i=0;i<28;i++){ var x=((hash(i)*W*1.5-camX*(.15+hash(i+5)*.2)+time*(6+hash(i+9)*10))%(W+20)+W+20)%(W+20), y=((hash(i+3)*H-camY*.1+Math.sin(time+i)*14)%H+H)%H; ctx.beginPath(); ctx.arc(x,y,1+hash(i+7)*1.8,0,TWO_PI); ctx.fill(); }
   ctx.restore();
@@ -2087,7 +2110,7 @@ function draw(dt,real,time){
   if(trail.length>1){
     ctx.lineCap='round';
     for(i=1;i<trail.length;i++){
-      ctx.strokeStyle='rgba(255,255,255,'+(0.3*i/trail.length)+')'; ctx.lineWidth=5*i/trail.length;
+      ctx.strokeStyle='rgba(255,255,255,'+A((0.3*i/trail.length))+')'; ctx.lineWidth=5*i/trail.length;
       ctx.beginPath(); ctx.moveTo(trail[i-1].x-camX,trail[i-1].y-camY); ctx.lineTo(trail[i].x-camX,trail[i].y-camY); ctx.stroke();
     }
   }
@@ -2156,12 +2179,12 @@ function draw(dt,real,time){
   // slow-mo tint
   if(tsCur<0.95){
     var a=(1-tsCur)/0.72;
-    ctx.fillStyle='rgba(40,110,255,'+(0.16*a)+')'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='rgba(40,110,255,'+A((0.16*a))+')'; ctx.fillRect(0,0,W,H);
     var vg=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.3,W/2,H/2,Math.max(W,H)*0.75);
-    vg.addColorStop(0,'rgba(0,0,30,0)'); vg.addColorStop(1,'rgba(0,0,30,'+(0.55*a)+')');
+    vg.addColorStop(0,'rgba(0,0,30,0)'); vg.addColorStop(1,'rgba(0,0,30,'+A((0.55*a))+')');
     ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
   }
-  if(fade>0){ ctx.fillStyle='rgba(0,0,0,'+Math.min(1,fade*1.6)+')'; ctx.fillRect(0,0,W,H); fade-=real; }
+  if(fade>0){ ctx.fillStyle='rgba(0,0,0,'+A(Math.min(1,fade*1.6))+')'; ctx.fillRect(0,0,W,H); fade-=real; }
 }
 
 // customizer preview

@@ -1411,7 +1411,7 @@ function updateMpUI(){
     var dot=document.createElement('div'); dot.className='dot'; dot.style.background=safeColor(pr.s,'#ff6a3d');
     var nm=document.createElement('span'); nm.textContent=String(pr.n||'Player').slice(0,12)+(p.isMe?' (you)':'')+((host&&host.peer===p.peer)?' *':'');
     var st=document.createElement('span'); st.className='r';
-    st.textContent=(pr.pl?(pr.fin?'finished':'racing'):(pr.rd?'ready':'waiting'))+' | '+(DIFFS[clamp(Number(pr.d)|0,0,2)].name)+(pr.sm?' | SLOW-MO':'')+(Number(pr.ps)===1?' | PAUSED':'')+mapTxt(pr)+' | K'+(Number(pr.kls)||0)+'/D'+(Number(pr.dth)||0);
+    st.textContent=(pr.pl?(pr.fin?'finished':'racing'):(pr.rd?'READY':'NOT READY'))+' | '+(DIFFS[clamp(Number(pr.d)|0,0,2)].name)+(pr.sm?' | SLOW-MO':'')+(Number(pr.ps)===1?' | PAUSED':'')+mapTxt(pr)+' | K'+(Number(pr.kls)||0)+'/D'+(Number(pr.dth)||0);
     row.appendChild(dot); row.appendChild(nm); row.appendChild(st);
     if(!p.isMe&&mapTxt(pr)){ var jb=document.createElement('button'); jb.textContent='Join'; jb.dataset.join=p.peer; jb.style.cssText='flex:none;border:0;border-radius:8px;padding:6px 12px;margin-left:8px;font:800 13px sans-serif;background:#ffd400;color:#000;cursor:pointer'; row.appendChild(jb); }
     box.appendChild(row);

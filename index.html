@@ -186,6 +186,8 @@ input[type=range]{ width:100%; }
   #edSelBar{padding:2px 4px;} #edSelBar .btn{padding:3px 6px;font-size:10px;}
 }
 /* ---- custom levels / publish ---- */
+.lvst{ font-size:12.5px; color:#ffd400; font-weight:700; }
+#lbSort{ max-width:380px; width:100%; } #lbSort .chip{ padding:5px 4px; font-size:12px; }
 #lib,#pubS{ justify-content:flex-start; }
 .lvcard{ width:100%; max-width:380px; box-sizing:border-box; background:var(--card); border:2px solid rgba(255,255,255,.18); border-radius:14px; padding:10px 12px; display:flex; flex-direction:column; gap:6px; }
 .lvcard .top{ display:flex; justify-content:space-between; align-items:baseline; gap:8px; } .lvcard b{ font-size:16px; } .lvcard small{ color:var(--muted); font-size:12px; }
@@ -272,6 +274,7 @@ input[type=range]{ width:100%; }
   <div class="card" id="lbSearchBox"><h3>Search by name, creator or level ID</h3>
     <input type="text" id="lbQ" maxlength="24" placeholder="e.g. ABC123 or sky run" autocomplete="off" autocapitalize="none">
     <div class="row" style="margin-top:8px"><div class="btn sm cy" id="lbGo">Search</div><div class="btn sm gh" id="lbRef">Newest</div></div></div>
+  <div class="ttabs" id="lbSort"><div class="chip sel" data-s="new">Newest</div><div class="chip" data-s="up">Most upvoted</div><div class="chip" data-s="views">Most played</div></div>
   <p class="note" id="lbNote">Loading...</p>
   <div id="lbList" style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:380px;align-items:stretch"></div>
   <div class="btn gh sm hidden" id="lbMore">Load more</div>
@@ -1693,7 +1696,7 @@ function tap(id,fn){ $(id).addEventListener('click',function(e){ audio(); SFX.cl
 // Swallow clicks on other elements for a moment so a popup button can never press the button behind it.
 var swallowUntil=0, swallowEl=null;
 document.addEventListener('click',function(e){ if(Date.now()<swallowUntil&&swallowEl&&!swallowEl.contains(e.target)){ e.stopPropagation(); e.preventDefault(); } },true);
-function swallowClicks(el){ swallowUntil=Date.now()+450; swallowEl=el; }
+function swallowClicks(el){ swallowUntil=Date.now()+300; swallowEl=el; }
 function tapR(id,fn){
   var el=$(id), last=0;
   function go(e){ var n=Date.now(); if(n-last<350)return; last=n; audio(); SFX.click(); fn(e); }
@@ -2231,42 +2234,49 @@ tap('pbBack',function(){ openEditor(edD); });
 tapR('edPub',openPublish);
 
 // ---- custom levels library ----
-var lbTab='pub', lbPage=0, lbQ='', lbBusy=false;
+function getVid(){ var v=''; try{ v=localStorage.getItem('fl_vid')||''; }catch(e){} if(!/^[A-Za-z0-9]{16}$/.test(v)){ v=''; var al='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'; for(var i=0;i<16;i++)v+=al[Math.floor(Math.random()*al.length)]; try{ localStorage.setItem('fl_vid',v); }catch(e){} } return v; }
+var lbSort='new', lbTab='pub', lbPage=0, lbQ='', lbBusy=false;
 function openLib(){ showScreen('lib'); setLbTab(lbTab); }
-function setLbTab(t){ lbTab=t; $('lbTabPub').classList.toggle('sel',t==='pub'); $('lbTabMine').classList.toggle('sel',t==='mine'); $('lbSearchBox').style.display=t==='pub'?'':'none'; if(t==='pub')lbLoad(true); else lbMine(); }
+function setLbTab(t){ lbTab=t; $('lbTabPub').classList.toggle('sel',t==='pub'); $('lbTabMine').classList.toggle('sel',t==='mine'); $('lbSearchBox').style.display=t==='pub'?'':'none'; $('lbSort').style.display=t==='pub'?'':'none'; if(t==='pub')lbLoad(true); else lbMine(); }
 function lbCardEl(m,mine){
   var el=document.createElement('div'); el.className='lvcard';
   var top=document.createElement('div'); top.className='top'; var b=document.createElement('b'); b.textContent=m.n; var id=document.createElement('span'); id.className='lvid'; id.textContent=m.c; id.addEventListener('click',function(){ copyTxt(m.c); }); top.appendChild(b); top.appendChild(id);
   var sm=document.createElement('small'); sm.textContent=(m.a?'by '+m.a:'')+(m.t?'  |  '+new Date(m.t).toLocaleDateString():'')+(m.v==='u'?'  |  code only':'');
   var bt=document.createElement('div'); bt.className='mlbtns';
-  function mk2(txt,cls,fn){ var x=document.createElement('div'); x.className='btn sm '+cls; x.textContent=txt; x.addEventListener('click',function(){ SFX.click(); fn(); }); bt.appendChild(x); }
-  mk2('Play','',function(){ lbFetch(m.c,function(d){ _edBack=false; _libBack=true; startCustom(d); }); });
+  function mk2(txt,cls,fn){ var x=document.createElement('div'); x.className='btn sm '+cls; x.textContent=txt; x.addEventListener('click',function(){ SFX.click(); fn(); }); bt.appendChild(x); return x; }
+  var stl=document.createElement('div'), upB=null; stl.className='lvst';
+  function paint(){ var u=m.up||0, w=m.vw||0; stl.textContent='\u25B2 '+u+' upvote'+(u===1?'':'s')+'   \u00B7   '+w+' play'+(w===1?'':'s'); if(upB){ upB.textContent=m.me?'\u25B2 Upvoted':'\u25B2 Upvote'; upB.classList.toggle('gh',!!m.me); } }
+  el._st=function(s){ m.vw=s.vw; m.up=s.up; m.me=s.me; paint(); };
+  mk2('Play','',function(){ lbFetch(m.c,function(d){ m.vw=(m.vw||0)+1; paint(); _edBack=false; _libBack=true; startCustom(d); },true); });
+  upB=mk2('\u25B2 Upvote','cy',function(){ lvReq('/lv/vote',{code:m.c,vid:getVid(),up:!m.me}).then(function(j){ m.up=j.up; m.me=j.me; paint(); toast(j.me?'Upvoted!':'Upvote removed'); },function(e){ toast(lvErr(e)); }); });
   if(!mine){ mk2('Save copy','cy',function(){ lbFetch(m.c,function(d){ d.id='L'+Math.random().toString(36).slice(2,8); if(mlUpsert(d))toast('Saved to My Levels (private copy)'); }); });
     mk2('Download','gh',function(){ lbFetch(m.c,function(d){ downloadLevel(d); }); });
     if(mpActive()){ var hh=hostPeer(); if(!hh||hh.isMe)mk2('Use in my room','or',function(){ lvFetchFull(m.c,function(d,meta){ mpSetCustom(m.c,meta||{n:m.n,a:m.a}); toast('Room level set: '+d.name); showScreen('mp'); updateMpUI(); },function(e){ toast(lvErr(e)); }); }); } }
-  el.appendChild(top); el.appendChild(sm); el.appendChild(bt); return el;
+  paint(); el.appendChild(top); el.appendChild(sm); el.appendChild(stl); el.appendChild(bt); return el;
 }
-function lbFetch(code,cb){
-  toast('Loading...'); lvReq('/lv/get?c='+encodeURIComponent(code)).then(function(j){ var d=cleanLevel(j.level); if(!d){ toast('That level could not be loaded'); return; } d.pub=null; d.vh=''; d.vt=0; d.vis='private'; d.author=String((j.meta&&j.meta.a)||'').slice(0,12); cb(d); },function(e){ toast(lvErr(e)); });
+function lbFetch(code,cb,view){
+  toast('Loading...'); lvReq('/lv/get?c='+encodeURIComponent(code)+(view?'&view=1&vid='+getVid():'')).then(function(j){ var d=cleanLevel(j.level); if(!d){ toast('That level could not be loaded'); return; } d.pub=null; d.vh=''; d.vt=0; d.vis='private'; d.author=String((j.meta&&j.meta.a)||'').slice(0,12); cb(d); },function(e){ toast(lvErr(e)); });
 }
 function lbLoad(reset){
   if(lbBusy)return; if(reset){ lbPage=0; $('lbList').innerHTML=''; } lbBusy=true; $('lbNote').textContent='Loading...'; $('lbMore').classList.add('hidden');
-  lvReq('/lv/list?q='+encodeURIComponent(lbQ)+'&p='+lbPage).then(function(j){
+  lvReq('/lv/list?q='+encodeURIComponent(lbQ)+'&p='+lbPage+'&s='+lbSort+'&vid='+getVid()).then(function(j){
     var items=Array.isArray(j.items)?j.items:[]; items.forEach(function(m){ $('lbList').appendChild(lbCardEl(m,false)); });
-    $('lbNote').textContent=$('lbList').children.length?(lbQ?'Results for "'+lbQ+'"':'Newest public levels'):(lbQ?'No levels found for "'+lbQ+'". Check the ID (6 letters/numbers).':'No public levels yet. Be the first: build one in the Level Editor and publish it!');
+    $('lbNote').textContent=$('lbList').children.length?(lbQ?'Results for "'+lbQ+'"':({new:'Newest public levels',up:'Most upvoted public levels',views:'Most played public levels'})[lbSort]):(lbQ?'No levels found for "'+lbQ+'". Check the ID (6 letters/numbers).':'No public levels yet. Be the first: build one in the Level Editor and publish it!');
     $('lbMore').classList.toggle('hidden',!j.more);
   },function(e){ $('lbNote').textContent=lvErr(e); }).then(function(){ lbBusy=false; });
 }
 function lbMine(){
   var box=$('lbList'); box.innerHTML=''; $('lbMore').classList.add('hidden'); var a=mlLoad().filter(function(d){ return d.pub; });
   $('lbNote').textContent=a.length?'Levels you published from this device.':'Nothing published yet. Open the Level Editor, beat your level in Test, then press Publish.';
-  a.forEach(function(d){ var el=lbCardEl({c:d.pub.code,n:d.name,a:d.author,v:d.vis==='public'?'p':'u'},true); box.appendChild(el); });
+  var els={}; a.forEach(function(d){ var el=lbCardEl({c:d.pub.code,n:d.name,a:d.author,v:d.vis==='public'?'p':'u'},true); els[d.pub.code]=el; box.appendChild(el); });
+  if(a.length)lvReq('/lv/stats?c='+Object.keys(els).join(',')+'&vid='+getVid()).then(function(j){ for(var c in els)if(j[c])els[c]._st(j[c]); },function(){});
 }
 tap('mLib',openLib); tap('lbBack',function(){ showScreen('menu'); });
 tap('lbTabPub',function(){ setLbTab('pub'); }); tap('lbTabMine',function(){ setLbTab('mine'); });
 tap('lbGo',function(){ lbQ=$('lbQ').value.trim().replace(/[<>]/g,''); lbLoad(true); });
 tap('lbRef',function(){ $('lbQ').value=''; lbQ=''; lbLoad(true); });
 tap('lbMore',function(){ lbPage++; lbLoad(false); });
+(function(){ var cs=document.querySelectorAll('#lbSort .chip'); for(var i=0;i<cs.length;i++)(function(c){ c.addEventListener('click',function(){ lbSort=c.getAttribute('data-s'); for(var k=0;k<cs.length;k++)cs[k].classList.toggle('sel',cs[k]===c); lbLoad(true); }); })(cs[i]); })();
 $('lbQ').addEventListener('keydown',function(e){ if(e.key==='Enter'){ lbQ=e.target.value.trim().replace(/[<>]/g,''); lbLoad(true); } });
 
 // ---- written guide (Tutorial > Guide tab) ----
